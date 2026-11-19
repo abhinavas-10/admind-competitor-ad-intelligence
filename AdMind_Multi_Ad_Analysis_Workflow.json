@@ -1,0 +1,727 @@
+{
+  "name": "AdMind - Marketing Intelligence Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "AdMind – English Learning Ad Research",
+        "formDescription": "Discover competitor advertising strategies in the English-learning market. Analyse real ads, evaluate creative quality and uncover new marketing opportunities.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Brand / Product Name",
+              "fieldName": "brand_name",
+              "placeholder": "e.g. MySivi",
+              "requiredField": "={{ true}}"
+            },
+            {
+              "fieldLabel": "Competitor Names",
+              "fieldName": "competitor_names",
+              "placeholder": "Duolingo, ELSA Speak, Cambly, Hello English",
+              "requiredField": "={{ false }}"
+            },
+            {
+              "fieldLabel": "Meta Ad Library URL",
+              "fieldName": "ad_library_url",
+              "placeholder": "https://www.facebook.com/ads/library/"
+            },
+            {
+              "fieldLabel": "Target Country",
+              "fieldName": "target_country",
+              "placeholder": "India",
+              "requiredField": "={{ true }}"
+            },
+            {
+              "fieldLabel": "Number of Ads to Analyse",
+              "fieldType": "number",
+              "fieldName": "ads_limit",
+              "placeholder": "5",
+              "requiredField": "={{ true }}"
+            },
+            {
+              "fieldLabel": "\tMarketing Objective",
+              "fieldType": "dropdown",
+              "fieldName": "marketing_objective",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Brand Awareness"
+                  },
+                  {
+                    "option": "App Installs"
+                  },
+                  {
+                    "option": "User Acquisition"
+                  },
+                  {
+                    "option": "Engagement"
+                  }
+                ]
+              },
+              "requiredField": "={{ true }}"
+            },
+            {
+              "fieldLabel": "Meta Ad Library ID",
+              "fieldName": "ad_id"
+            },
+            {
+              "fieldLabel": "Ad Headline",
+              "fieldName": "headline"
+            },
+            {
+              "fieldLabel": "Primary Ad Text",
+              "fieldName": "Not available – primary ad text could not be verified."
+            },
+            {
+              "fieldLabel": "CTA",
+              "fieldName": "cta"
+            },
+            {
+              "fieldLabel": "Ad Format",
+              "fieldType": "dropdown",
+              "fieldName": "ad_format",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Image"
+                  },
+                  {
+                    "option": "Video"
+                  },
+                  {
+                    "option": "Carousel"
+                  },
+                  {
+                    "option": "Unknown"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Creative Description",
+              "fieldName": "creative_description"
+            },
+            {
+              "fieldLabel": "Advertiser Name",
+              "fieldName": "advertiser",
+              "placeholder": "e.g. Duolingo, ELSA Speak"
+            },
+            {
+              "fieldLabel": "Multiple Ads Data (JSON)",
+              "fieldType": "textarea",
+              "fieldName": "ads_json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -304,
+        -400
+      ],
+      "id": "ffc87433-16cf-46f1-8b44-fb36c3b8a754",
+      "name": "On form submission",
+      "webhookId": "8f85fb3e-b42b-4208-b0c5-16b1944243d5"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\n\n// 1. Read research configuration\nconst brand = String(input.brand_name || \"\").trim();\nconst country = String(input.target_country || \"\").trim();\nconst competitorNames = String(input.competitor_names || \"\");\nconst objective = String(input.marketing_objective || \"\").trim();\nconst requestedLimit = Number(input.ads_limit || 5);\n\nconst adLibraryUrl = String(input.ad_library_url || \"\").trim();\n\n// 2. Validate research configuration\nconst errors = [];\n\nif (!brand) errors.push(\"Brand name is required.\");\nif (!country) errors.push(\"Target country is required.\");\nif (!objective) errors.push(\"Marketing objective is required.\");\n\nif (!Number.isFinite(requestedLimit) || requestedLimit < 1) {\n  errors.push(\"Number of ads must be at least 1.\");\n}\n\nif (errors.length) {\n  throw new Error(\"AdMind validation failed: \" + errors.join(\" \"));\n}\n\n// 3. Validate Meta Ad Library URL\nlet urlStatus = \"Not provided\";\n\nif (adLibraryUrl) {\n  if (!/facebook\\.com\\/ads\\/library/i.test(adLibraryUrl)) {\n    throw new Error(\"Please provide a valid Facebook Ad Library URL.\");\n  }\n\n  urlStatus = \"Valid Meta Ad Library URL\";\n}\n\n// 4. Normalize competitor names\nconst competitors = [\n  ...new Set(\n    competitorNames\n      .split(\",\")\n      .map(name => name.trim().replace(/\\s+/g, \" \"))\n      .filter(Boolean)\n  )\n];\n\n// 5. Read multiple ads from JSON textarea\nlet ads = [];\n\nconst adsJson = String(input.ads_json || \"\").trim();\n\nif (adsJson) {\n  try {\n    ads = JSON.parse(adsJson);\n  } catch (error) {\n    throw new Error(\n      \"Invalid Ads JSON. Check the JSON format: \" + error.message\n    );\n  }\n\n  if (!Array.isArray(ads)) {\n    throw new Error(\"Multiple Ads Data must contain a JSON array.\");\n  }\n}\n\n// 6. Backward compatibility: use the original single-ad form\nif (!ads.length) {\n  ads = [{\n    advertiser: input.advertiser,\n    adId: input.ad_id,\n    headline: input.headline,\n    primaryText: input.primary_text,\n    cta: input.cta,\n    adFormat: input.ad_format,\n    creativeDescription: input.creative_description\n  }];\n}\n\n// 7. Apply analysis limit\nconst analysisLimit = Math.min(requestedLimit, 10);\nads = ads.slice(0, analysisLimit);\n\n// 8. Validate and normalize every advertisement\nconst normalizedAds = ads.map((ad, index) => {\n  const advertiser = String(ad.advertiser || \"\").trim();\n  const adId = String(ad.adId || ad.ad_id || \"\").trim();\n  const headline = String(ad.headline || \"\").trim();\n\n  const rawPrimaryText = String(\n    ad.primaryText || ad.primary_text || \"\"\n  ).trim();\n\n  const hasVerifiedPrimaryText =\n    rawPrimaryText &&\n    !rawPrimaryText.toLowerCase().includes(\"enter exact visible text\") &&\n    !rawPrimaryText.toLowerCase().includes(\"not available\");\n\n  const primaryText = hasVerifiedPrimaryText\n    ? rawPrimaryText\n    : \"Not available – primary ad text could not be verified.\";\n\n  if (!advertiser || !adId || !headline) {\n    throw new Error(\n      `Advertisement ${index + 1} requires advertiser, adId and headline.`\n    );\n  }\n\n  return {\n    adNumber: index + 1,\n    advertiser,\n    adId,\n    headline,\n    primaryText,\n    primaryTextVerified: Boolean(hasVerifiedPrimaryText),\n    cta: String(ad.cta || \"Not provided\").trim(),\n    adFormat: String(ad.adFormat || ad.ad_format || \"Unknown\").trim(),\n    creativeDescription: String(\n      ad.creativeDescription || ad.creative_description || \"\"\n    ).trim(),\n    adLibraryUrl:\n      `https://www.facebook.com/ads/library/?id=${encodeURIComponent(adId)}`\n  };\n});\n\n// 9. Build research configuration\nconst researchConfig = {\n  brand,\n  country,\n  competitors,\n  marketingObjective: objective,\n  requestedAds: requestedLimit,\n  analysisLimit,\n  actualAdsSubmitted: normalizedAds.length,\n  adLibraryUrl,\n  adLibraryUrlStatus: urlStatus,\n\n  analysisDimensions: [\n    \"Hook and opening message\",\n    \"Core advertising message\",\n    \"Call to action\",\n    \"Audience pain point\",\n    \"Emotional appeal\",\n    \"Marketing angle\",\n    \"Creative format\",\n    \"Funnel stage\",\n    \"Evidence and persuasion\"\n  ],\n\n  intelligenceModules: [\n    \"Creative DNA Extraction\",\n    \"Competitor Strategy Analysis\",\n    \"Explainable Creative Quality Index\",\n    \"Multi-Ad Creative Ranking\",\n    \"Creative Opportunity Finder\",\n    \"Original Campaign Concept Generator\"\n  ]\n};\n\n// 10. Return structured multi-ad data\nreturn [{\n  json: {\n    status: \"validated\",\n    project: \"AdMind\",\n    researchConfig,\n    ads: normalizedAds,\n\n    validation: {\n      passed: true,\n      competitorCount: competitors.length,\n      adsSubmitted: normalizedAds.length,\n      analysisLimit,\n      urlStatus,\n      allAdsValidated: true,\n      processingMode: \"Multi-ad manual research\"\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        -400
+      ],
+      "id": "b1c288db-d9cf-4bc1-8dcf-9edd574dcdaf",
+      "name": "01 – Validate & Prepare Research Inputs"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n/**\n * AdMind – Competitor Search Preparation\n * Version: 1.1\n * Purpose: Generate Meta Ad Library search URLs\n * and prepare Apify actor input.\n */\n\n// 1. Get validated input from the previous node\nconst data = $input.first().json;\nconst config = data.researchConfig;\n\n// 2. Validate incoming research configuration\nif (!config) {\n  throw new Error(\n    \"Research configuration not found. Check the previous node.\"\n  );\n}\n\nif (!config.brand || !config.country) {\n  throw new Error(\n    \"Brand name and target country are required.\"\n  );\n}\n\n// 3. Map country names to Meta Ad Library country codes\nconst countryCodes = {\n  \"india\": \"IN\",\n  \"united states\": \"US\",\n  \"usa\": \"US\",\n  \"united kingdom\": \"GB\",\n  \"uk\": \"GB\",\n  \"canada\": \"CA\",\n  \"australia\": \"AU\"\n};\n\nconst countryKey = config.country.toLowerCase().trim();\n\nconst countryCode = countryCodes[countryKey] || \"ALL\";\n\n// 4. Prepare competitor search terms\nconst searchTerms = config.competitors.length > 0\n  ? config.competitors\n  : [config.brand];\n\n// 5. Generate Meta Ad Library search URLs\n// Avoid URLSearchParams for Code node compatibility.\n\nlet startUrls = [];\n\nif (config.adLibraryUrl) {\n\n  startUrls = [\n    {\n      url: config.adLibraryUrl\n    }\n  ];\n\n} else {\n\n  startUrls = searchTerms.map(competitor => {\n\n    const query = [\n      [\"active_status\", \"active\"],\n      [\"ad_type\", \"all\"],\n      [\"country\", countryCode],\n      [\"q\", competitor],\n      [\"search_type\", \"keyword_unordered\"],\n      [\"media_type\", \"all\"]\n    ]\n      .map(([key, value]) => {\n        return key + \"=\" + encodeURIComponent(value);\n      })\n      .join(\"&\");\n\n    return {\n      url:\n        \"https://www.facebook.com/ads/library/?\" +\n        query\n    };\n\n  });\n\n}\n\n// 6. Apply a safe research limit\nconst analysisLimit = Math.min(\n  Math.max(Number(config.analysisLimit) || 5, 1),\n  10\n);\n\n// 7. Prepare Apify actor input\nconst actorInput = {\n  startUrls: startUrls,\n  resultsLimit: analysisLimit,\n  maxItems: analysisLimit,\n  activeStatus: \"active\",\n  sorting: \"relevancy_monthly_grouped\",\n  isDetailsPerAd: false,\n  runTag: \"admind-english-learning-research\"\n};\n\n// 8. Return structured search preparation output\nreturn [\n  {\n    json: {\n\n      project: \"AdMind\",\n\n      stage: \"competitor_search_preparation\",\n\n      status: \"ready\",\n\n      research: {\n        brand: config.brand,\n        country: config.country,\n        countryCode: countryCode,\n        competitors: searchTerms,\n        marketingObjective: config.marketingObjective\n      },\n\n      collection: {\n        searchCount: startUrls.length,\n        totalAdLimit: analysisLimit,\n        actorId: \"apidojo/facebook-ads-scraper\"\n      },\n\n      searchTerms: searchTerms,\n\n      startUrls: startUrls,\n\n      actorInput: actorInput\n\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -304,
+        -176
+      ],
+      "id": "d5c2da26-26f7-4318-864d-6a9b7d08eefc",
+      "name": "02 – Build Competitor Search Jobs"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "h",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.actorInput }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -80,
+        -176
+      ],
+      "id": "3493c3d6-9987-4f94-9dd5-5811976bc783",
+      "name": "03 – Launch Apify Ad Collection",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFeMsk54eGskV1Pc",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ 'https://api.apify.com/v2/actor-runs/' + $('03 – Launch Apify Ad Collection').first().json.data.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        368,
+        -176
+      ],
+      "id": "8f5f6eeb-85ab-4bc0-8076-08db7bb669b3",
+      "name": "05 – Check Apify Run Status",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFeMsk54eGskV1Pc",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        80,
+        -176
+      ],
+      "id": "c1423084-02d9-4a66-85f2-6e40b705bd81",
+      "name": "04 – Wait for Apify",
+      "webhookId": "b4a66752-ac81-4df3-a4af-11f4098c47dc"
+    },
+    {
+      "parameters": {
+        "url": "=\n{{ 'https://api.apify.com/v2/datasets/' + $('05 – Check Apify Run Status').first().json.data.defaultDatasetId + '/items?clean=true&format=json' }}\n",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        592,
+        -176
+      ],
+      "id": "433e33f4-594d-4d14-982b-f541024316e3",
+      "name": "06 – Retrieve Ads from Dataset",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ZFeMsk54eGskV1Pc",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\n\nif (!items.length) {\n  throw new Error(\"No advertisements received from Split Out.\");\n}\n\nreturn items.map((item, index) => {\n  const input = item.json;\n\n  // Read the individual advertisement from Split Out\n  const ad = input.ads || {};\n\n  if (!ad.advertiser || !ad.headline || !ad.adId) {\n    throw new Error(\n      `Advertisement ${index + 1} is missing advertiser, headline or ad ID.`\n    );\n  }\n\n  // Validate primary ad text\n  const rawPrimaryText = String(ad.primaryText || \"\").trim();\n\n  const hasVerifiedPrimaryText =\n    rawPrimaryText &&\n    !rawPrimaryText.toLowerCase().includes(\"enter exact visible text\") &&\n    !rawPrimaryText.toLowerCase().includes(\"not available\");\n\n  const primaryText = hasVerifiedPrimaryText\n    ? rawPrimaryText\n    : \"Not available – primary ad text could not be verified.\";\n\n  // Generate individual Meta Ad Library URL\n  const individualAdUrl =\n    `https://www.facebook.com/ads/library/?id=${encodeURIComponent(ad.adId)}`;\n\n  return {\n    json: {\n      project: \"AdMind\",\n\n      dataSource: \"Manual Meta Ad Library Research\",\n\n      researchConfig: input.researchConfig || {},\n\n      ad: {\n        adNumber: ad.adNumber || index + 1,\n        advertiser: ad.advertiser,\n        adId: ad.adId,\n        headline: ad.headline,\n        primaryText,\n        primaryTextVerified: Boolean(hasVerifiedPrimaryText),\n        cta: ad.cta || \"Not provided\",\n        adFormat: ad.adFormat || \"Unknown\",\n        creativeDescription: ad.creativeDescription || \"\",\n        adLibraryUrl: individualAdUrl\n      },\n\n      processingStatus: \"Normalized\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -400
+      ],
+      "id": "5eeaa7ea-649a-444e-a850-c2a02a29996e",
+      "name": "07 – Normalize & Filter Ad Creatives"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": ""
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=\n{\n  \"model\": \"cohere/north-mini-code:free\",\n  \"temperature\": 0.2,\n  \"max_tokens\": 2500,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert EdTech advertising analyst. Analyze only supplied evidence. Never invent missing information. Treat the headline and primary ad text as separate fields. The creative description is context only, not verified ad copy. If primary text is unavailable, state that clearly. The verified headline may be identified as a possible hook, but distinguish it from unavailable primary text. If CTA is not provided, return Unknown. Mark unsupported information as Unknown. Separate observed facts from recommendations. Return compact valid JSON only, without Markdown or reasoning.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze this advertisement. Return these exact JSON fields: brand, hook, core_message, cta, ad_format, creative_description, audience_pain_point, emotional_appeal, marketing_angle, funnel_stage, persuasion_evidence, strengths, weaknesses, improvement_suggestions. Use strings for single-value fields and arrays for strengths, weaknesses and improvement_suggestions. Use the verified headline as evidence for the possible hook and core message. Do not claim the creative description is actual ad copy. Do not invent audience details or performance results. Advertisement data: Advertiser: {{$json.ad.advertiser}} | Headline: {{$json.ad.headline}} | Primary text: {{$json.ad.primaryText}} | CTA: {{$json.ad.cta}} | Format: {{$json.ad.adFormat}} | Creative description (context only): {{$json.ad.creativeDescription}}\"\n    }\n  ]\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        368,
+        -400
+      ],
+      "id": "602653ce-6ee8-42db-b4f4-6d01fbf0d1a1",
+      "name": "08 – AI Creative DNA Analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst inputs = $input.all();\n\nconst originalItems = $(\"07 – Normalize & Filter Ad Creatives\").all();\n\nif (!inputs.length) {\n  throw new Error(\"No AI analysis received.\");\n}\n\nreturn inputs.map((item, index) => {\n  const input = item.json;\n\n  // 1. Extract AI response\n  let analysis =\n    input.choices?.[0]?.message?.content ||\n    input.body?.choices?.[0]?.message?.content ||\n    input.text ||\n    input.content;\n\n  if (!analysis) {\n    throw new Error(`AI response missing for advertisement ${index + 1}.`);\n  }\n\n  // 2. Clean and parse AI JSON\n  if (typeof analysis === \"string\") {\n    analysis = analysis\n      .replace(/^```json\\s*/i, \"\")\n      .replace(/\\s*```$/i, \"\")\n      .trim();\n\n   // Remove known malformed properties sometimes generated by the AI model\nanalysis = analysis.replace(\n  /^\\s*(?:广大\"|pocos|certainly)\\s*:\\s*.*?,?\\s*$/gm,\n  \"\"\n);\n\n    // Extract the JSON object\n    const start = analysis.indexOf(\"{\");\n    const end = analysis.lastIndexOf(\"}\");\n\n    if (start === -1 || end === -1 || end < start) {\n      throw new Error(\n        `No valid JSON object found for advertisement ${index + 1}.`\n      );\n    }\n\n    analysis = analysis.slice(start, end + 1);\n\n    try {\n      analysis = JSON.parse(analysis);\n    } catch (error) {\n      throw new Error(\n        `Could not parse AI analysis for advertisement ${index + 1}: ${error.message}`\n      );\n    }\n  }\n\n  if (!analysis || typeof analysis !== \"object\") {\n    throw new Error(`Invalid AI analysis for advertisement ${index + 1}.`);\n  }\n\n  // 3. Retrieve matching normalized advertisement\n  const original = originalItems[index]?.json;\n\n  if (!original) {\n    throw new Error(\n      `Original advertisement data missing for item ${index + 1}.`\n    );\n  }\n\n  const ad = original.ad || {};\n  const research = original.researchConfig || {};\n\n  // 4. Define scoring criteria\n  const criteria = [\n    { name: \"Hook strength\", weight: 25, field: \"hook\" },\n    { name: \"Message clarity\", weight: 20, field: \"core_message\" },\n    { name: \"Persuasiveness\", weight: 20, field: \"persuasion_evidence\" },\n    { name: \"CTA effectiveness\", weight: 15, field: \"cta\" },\n    { name: \"Creative execution\", weight: 10, field: \"strengths\" },\n    { name: \"Audience relevance\", weight: 10, field: \"audience_pain_point\" }\n  ];\n\n  // 5. Calculate evidence coverage\n  const scores = criteria.map(criterion => {\n    const value = analysis[criterion.field];\n\n    const known =\n      value !== undefined &&\n      value !== null &&\n      value !== \"\" &&\n      value !== \"Unknown\" &&\n      !(Array.isArray(value) && value.length === 0);\n\n    return {\n      criterion: criterion.name,\n      weight: criterion.weight,\n      evidenceAvailable: known,\n      status: known\n        ? \"Evidence available\"\n        : \"Insufficient evidence\"\n    };\n  });\n\n  const evidenceCoverage = scores\n    .filter(score => score.evidenceAvailable)\n    .reduce((sum, score) => sum + score.weight, 0);\n\n  // 6. Return one result per advertisement\n  return {\n    json: {\n      project: \"AdMind\",\n\n      adNumber: ad.adNumber || index + 1,\n\n      brand:\n        analysis.brand ||\n        ad.advertiser ||\n        research.brand ||\n        \"Unknown\",\n\n      advertiser: ad.advertiser || \"Unknown\",\n\n      adId: ad.adId || \"Unknown\",\n\n      headline: ad.headline || \"Unknown\",\n\n      adFormat: ad.adFormat || \"Unknown\",\n\n      adLibraryUrl: ad.adLibraryUrl || \"Unknown\",\n\n      marketingObjective:\n        research.marketingObjective || \"Unknown\",\n\n      creativeQualityIndex: evidenceCoverage,\n\n      maximumScore: 100,\n\n      evidenceCoverage,\n\n      scoringMethod:\n        \"Preliminary evidence-coverage assessment, not an advertising performance score\",\n\n      scores,\n\n      aiAnalysis: analysis,\n\n      processingStatus: \"CQI analysis completed\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -400
+      ],
+      "id": "a9c53c4f-097d-4a53-b52e-c3b0aaaddbea",
+      "name": "09 – Explainable Creative Quality Index"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "B"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "=application/json",
+        "body": "=\n{{ JSON.stringify({\n  model: \"cohere/north-mini-code:free\",\n  temperature: 0.1,\n  max_tokens: 3500,\n  messages: [\n    {\n      role: \"system\",\n      content: \"You are a strict advertising creative evaluator. Evaluate only supplied evidence. Never invent missing information or campaign results. Score six criteria from 1 to 5, or null if evidence is insufficient. Return exactly one valid JSON object. Keep explanations concise. Limit improvements to 3 items. Do not reveal reasoning or use Markdown.\"\n    },\n    {\n      role: \"user\",\n      content: \"Evaluate this advertisement using six criteria: Hook strength, Message clarity, Persuasiveness, CTA effectiveness, Creative execution, and Audience relevance. Score each from 1 to 5, or null if evidence is insufficient. Never invent missing information or campaign results. This measures creative quality, not actual ad performance.\\n\\nReturn JSON with these keys: ratings, overall_score, overall_assessment, score_explanations, limitations, improvements, scoring_note.\\n\\nEvidence:\\n\" + JSON.stringify({\n        aiAnalysis: $json.aiAnalysis,\n        advertiser: $json.advertiser,\n        headline: $json.headline,\n        format: $json.adFormat,\n        marketingObjective: $json.marketingObjective\n      })\n    }\n  ]\n}) }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        816,
+        -400
+      ],
+      "id": "5e6e7f03-a7e7-483d-95bf-d83380e25083",
+      "name": "10 – AI Creative Quality Scoring"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst aiItems = $input.all();\nconst originalItems = $(\"09 – Explainable Creative Quality Index\").all();\n\nif (!aiItems.length) {\n  throw new Error(\"No AI scoring responses received.\");\n}\n\nif (aiItems.length !== originalItems.length) {\n  throw new Error(\n    `Mismatch: received ${aiItems.length} AI responses for ${originalItems.length} advertisements.`\n  );\n}\n\nconst criteria = [\n  { key: \"hook_strength\", label: \"Hook strength\", weight: 25 },\n  { key: \"message_clarity\", label: \"Message clarity\", weight: 20 },\n  { key: \"persuasiveness\", label: \"Persuasiveness\", weight: 20 },\n  { key: \"cta_effectiveness\", label: \"CTA effectiveness\", weight: 15 },\n  { key: \"creative_execution\", label: \"Creative execution\", weight: 10 },\n  { key: \"audience_relevance\", label: \"Audience relevance\", weight: 10 }\n];\n\nconst aliases = {\n  hook_strength: [\"Hook strength\"],\n  message_clarity: [\"Message clarity\"],\n  persuasiveness: [\"Persuasiveness\", \"Persuiveness\"],\n  cta_effectiveness: [\"CTA effectiveness\"],\n  creative_execution: [\"Creative execution\"],\n  audience_relevance: [\"Audience relevance\"]\n};\n\nreturn aiItems.map((item, index) => {\n  const input = item.json;\n  const original = originalItems[index].json;\n\n  // Extract AI response\n  let content = input.choices?.[0]?.message?.content;\n\n  if (!content) {\n    throw new Error(\n      `AI scoring response content is missing for advertisement ${index + 1}.`\n    );\n  }\n\n  // Parse JSON response\n  if (typeof content === \"string\") {\n    content = content\n      .replace(/^```json\\s*/i, \"\")\n      .replace(/^```\\s*/i, \"\")\n      .replace(/\\s*```$/, \"\")\n      .trim();\n\n    try {\n      content = JSON.parse(content);\n    } catch (error) {\n      throw new Error(\n        `Unable to parse AI scoring response for advertisement ${index + 1}: ${error.message}`\n      );\n    }\n  }\n\n  const aiRatings = content.ratings || {};\n\n  let weightedTotal = 0;\n  let availableWeight = 0;\n\n  const ratings = criteria.map(criterion => {\n    let rating = aiRatings[criterion.key];\n\n    if (rating === undefined) {\n      for (const alias of aliases[criterion.key]) {\n        if (aiRatings[alias] !== undefined) {\n          rating = aiRatings[alias];\n          break;\n        }\n      }\n    }\n\n    const score =\n      typeof rating === \"number\"\n        ? rating\n        : rating?.score;\n\n    const valid =\n      typeof score === \"number\" &&\n      Number.isFinite(score) &&\n      score >= 1 &&\n      score <= 5;\n\n    if (valid) {\n      weightedTotal += score * criterion.weight;\n      availableWeight += criterion.weight;\n    }\n\n    return {\n      criterion: criterion.label,\n      weight: criterion.weight,\n      score: valid ? score : null,\n      explanation:\n        content.score_explanations?.[criterion.label] ||\n        rating?.explanation ||\n        \"No separate explanation provided.\",\n      improvement:\n        content.improvements || []\n    };\n  });\n\n  // Weighted average of available ratings\n  const finalScore =\n    availableWeight > 0\n      ? Number((weightedTotal / availableWeight).toFixed(2))\n      : null;\n\n  const finalCQI =\n    finalScore !== null\n      ? Number(((finalScore / 5) * 100).toFixed(2))\n      : null;\n\n  return {\n    json: {\n      project: \"AdMind\",\n      adNumber: original.adNumber || index + 1,\n      brand: original.brand,\n      advertiser: original.advertiser,\n      adId: original.adId,\n      headline: original.headline,\n      adFormat: original.adFormat,\n      adLibraryUrl: original.adLibraryUrl,\n      marketingObjective: original.marketingObjective,\n\n      creativeQualityScore: finalScore,\n      creativeQualityIndex: finalCQI,\n      maximumScore: 100,\n\n      availableWeight,\n      unavailableWeight: 100 - availableWeight,\n      evidenceCoverage: availableWeight,\n\n      ratings,\n\n      overallAssessment: content.overall_assessment || \"\",\n      scoreExplanations: content.score_explanations || {},\n      limitations: content.limitations || [],\n      improvements: content.improvements || [],\n      scoringNote: content.scoring_note || \"\",\n\n      scoringMethod:\n        \"Weighted average of available AI ratings, normalized to 100\",\n\n      processingStatus: \"Final CQI calculated\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -400
+      ],
+      "id": "dfc92296-7e2c-47e2-9b29-c884dda26d6a",
+      "name": "11 – Parse AI Scores & Calculate Final CQI"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "html",
+        "options": {
+          "fileName": "AdMind_Competitor_Research_Report.html"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.2,
+      "position": [
+        2576,
+        -416
+      ],
+      "id": "a52ee349-1121-49b3-9679-92be1958f165",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "ads",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1.1,
+      "position": [
+        32,
+        -768
+      ],
+      "id": "b8c5b6db-ed63-4af0-9860-5f4ef09790ac",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\n\nif (items.length === 0) {\n  throw new Error(\"No scored advertisements received.\");\n}\n\n// Sort by CQI, highest first\nconst rankedAds = items\n  .map(item => item.json)\n  .filter(ad => typeof ad.creativeQualityIndex === \"number\")\n  .sort((a, b) => b.creativeQualityIndex - a.creativeQualityIndex);\n\nif (rankedAds.length === 0) {\n  throw new Error(\"No advertisements have a valid CQI score.\");\n}\n\n// Assign competition ranks: equal scores receive equal ranks\nlet previousScore = null;\nlet currentRank = 0;\n\nconst results = rankedAds.map((ad, index) => {\n  if (ad.creativeQualityIndex !== previousScore) {\n    currentRank = index + 1;\n    previousScore = ad.creativeQualityIndex;\n  }\n\n  return {\n    ...ad,\n    rank: currentRank,\n    rankingStatus: currentRank === 1\n      ? \"Joint highest-scoring creative\"\n      : \"Ranked\"\n  };\n});\n\n// Identify all advertisements tied for first place\nconst topScore = results[0].creativeQualityIndex;\n\nconst coWinners = results.filter(\n  ad => ad.creativeQualityIndex === topScore\n);\n\nconst winner = {\n  advertiser: coWinners.map(ad => ad.advertiser).join(\" and \"),\n  creativeQualityIndex: topScore,\n  tied: coWinners.length > 1,\n  coWinnerCount: coWinners.length,\n  advertisements: coWinners.map(ad => ({\n    advertiser: ad.advertiser,\n    adId: ad.adId,\n    headline: ad.headline,\n    creativeQualityScore: ad.creativeQualityScore,\n    creativeQualityIndex: ad.creativeQualityIndex,\n    evidenceCoverage: ad.evidenceCoverage,\n    adLibraryUrl: ad.adLibraryUrl\n  }))\n};\n\nreturn [\n  {\n    json: {\n      project: \"AdMind\",\n      totalAdsAnalysed: results.length,\n      rankingMethod: \"Descending order by Creative Quality Index (CQI), with equal scores receiving equal ranks\",\n      winner,\n      coWinners,\n      rankedAds: results,\n      winnerConclusion: coWinners.length > 1\n        ? `${coWinners.length} advertisements are jointly highest-scoring with a CQI of ${topScore}/100.`\n        : `${winner.advertiser} has the highest creative quality score of ${topScore}/100.`,\n      performanceDisclaimer:\n        \"This ranking measures creative quality based on available evidence. It does not establish actual advertising performance.\",\n      processingStatus: \"Advertisements ranked successfully\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -704
+      ],
+      "id": "67fcb8e8-50e5-450c-8416-e6981b0eb436",
+      "name": "12 – Rank Ads & Identify Winner"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": ""
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=\n{{ JSON.stringify({\n  model: \"cohere/north-mini-code:free\",\n  temperature: 0,\n  max_tokens: 5000,\n  messages: [\n    {\n      role: \"system\",\n      content:\n        \"You are a strict factual competitor marketing research analyst. \" +\n        \"Return exactly ONE valid JSON object and nothing else. \" +\n        \"Never explain reasoning, repeat JSON, correct yourself, or include commentary. \" +\n        \"Use only supplied ranking data and ad evidence. \" +\n        \"Never invent visual details, product features, demographics, testimonials, statistics, or campaign results. \" +\n        \"Use null for unsupported fields. \" +\n        \"Do not describe an unknown CTA as absent. \" +\n        \"Equal CQI scores mean joint winners. \" +\n        \"CQI measures creative quality, not actual advertising performance. \" +\n        \"All proposed MySivi campaign concepts must be labelled Inference. \" +\n        \"Keep every string concise, preferably one sentence.\"\n    },\n    {\n      role: \"user\",\n      content:\n        \"Analyze four competitor advertisements for MySivi.\\n\\n\" +\n\n        \"OUTPUT REQUIREMENTS:\\n\" +\n\n        \"Return exactly these seven top-level keys:\\n\" +\n        \"competitor_comparison, overall_market_patterns, leading_competitors, competitor_strategy_insights, opportunity_for_mysivi, suggested_campaign_ideas, evidence_limitations.\\n\\n\" +\n\n        \"1. competitor_comparison: exactly four objects. Each object must contain competitor, rank, cqi, evidence_coverage, marketing_angle, target_audience, key_message, creative_strengths, creative_weaknesses, evidence_limitations.\\n\" +\n        \"Use the exact competitor names and ranking values from the supplied data. Use null when a field is unsupported.\\n\\n\" +\n\n        \"2. overall_market_patterns: maximum three factual observations about these four advertisements only. Do not claim correlation or campaign performance.\\n\\n\" +\n\n        \"3. leading_competitors: include every competitor with rank 1, including ties. Each object must contain competitor and rank.\\n\\n\" +\n\n        \"4. competitor_strategy_insights: maximum three concise insights directly supported by the supplied evidence.\\n\\n\" +\n\n        \"5. opportunity_for_mysivi: exactly four strings, each beginning with Recommendation:. Recommendations must be strategic suggestions, not claims about existing MySivi features.\\n\\n\" +\n\n        \"6. suggested_campaign_ideas: exactly three objects. Each must contain concept, target_audience, hook, key_message, suggested_cta, rationale. Prefix every concept with Inference:. Do not claim that proposed features already exist in MySivi. Do not invent testimonials, results, or statistics.\\n\\n\" +\n\n        \"7. evidence_limitations: an array containing these limitations: missing ad information, unverified audience targeting, limited creative inspection, and unavailable campaign performance metrics.\\n\\n\" +\n\n        \"IMPORTANT EVIDENCE RULES:\\n\" +\n        \"- A researcher-provided creative description is not proof of the full visual execution.\\n\" +\n        \"- Do not invent visual strengths or weaknesses.\\n\" +\n        \"- Do not infer actual target demographics beyond what the ad text or description supports.\\n\" +\n        \"- Duolingo primary text is unverified; preserve that limitation.\\n\" +\n        \"- Hello English Online has no separately supplied headline.\\n\" +\n        \"- Cambly CTA was not provided; do not invent it.\\n\" +\n        \"- Do not claim that a competitor has better reach, conversions, installs, engagement, or performance.\\n\" +\n        \"- Do not call any competitor the unique winner when rank 1 is tied.\\n\" +\n        \"- Do not describe MySivi features as verified unless supplied evidence confirms them.\\n\" +\n        \"- Return all four competitors and all seven required keys.\\n\" +\n        \"- Return one complete JSON object only, with valid JSON syntax and no markdown.\\n\\n\" +\n\n        \"RANKING DATA:\\n\" +\n\n        JSON.stringify(\n          $(\"12 – Rank Ads & Identify Winner\").first().json.rankedAds.map(ad => ({\n            advertiser: ad.advertiser,\n            rank: ad.rank,\n            creativeQualityScore: ad.creativeQualityScore,\n            creativeQualityIndex: ad.creativeQualityIndex,\n            evidenceCoverage: ad.evidenceCoverage,\n            headline: ad.headline,\n            adFormat: ad.adFormat,\n            adLibraryUrl: ad.adLibraryUrl\n          }))\n        ) +\n\n        \"\\n\\nACTUAL AD EVIDENCE:\\n\" +\n\n        JSON.stringify(\n          $(\"07 – Normalize & Filter Ad Creatives\").all().map(item => ({\n            advertiser: item.json.ad?.advertiser ?? null,\n            adId: item.json.ad?.adId ?? null,\n            headline: item.json.ad?.headline ?? null,\n            primaryText: item.json.ad?.primaryText ?? null,\n            primaryTextVerified: item.json.ad?.primaryTextVerified ?? false,\n            cta: item.json.ad?.cta ?? null,\n            adFormat: item.json.ad?.adFormat ?? null,\n            creativeDescription: item.json.ad?.creativeDescription ?? null\n          }))\n        )\n    }\n  ]\n}) }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1264,
+        -400
+      ],
+      "id": "75b4d86b-a364-4ef8-bad8-2816e06ef04e",
+      "name": "13– Competitor Strategy & Opportunity Analysis"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst response = $input.first().json;\nconst content = response.choices?.[0]?.message?.content;\n\nif (!content) {\n  throw new Error(\"No strategy content received from the AI node.\");\n}\n\nconst cleaned = content\n  .replace(/```json/gi, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\nlet strategy;\n\ntry {\n  strategy = JSON.parse(cleaned);\n} catch (error) {\n  throw new Error(\"Could not parse competitor strategy JSON: \" + error.message);\n}\n\nif (!Array.isArray(strategy.competitor_comparison) ||\n    strategy.competitor_comparison.length !== 4) {\n  throw new Error(\"Expected exactly four competitor comparisons.\");\n}\n\nif (!Array.isArray(strategy.suggested_campaign_ideas) ||\n    strategy.suggested_campaign_ideas.length !== 3) {\n  throw new Error(\"Expected exactly three campaign concepts.\");\n}\n\n// Correct claims using the supplied research evidence.\nfor (const competitor of strategy.competitor_comparison) {\n  if (competitor.competitor === \"Cambly\") {\n    competitor.creative_weaknesses =\n      \"CTA was not supplied in the research evidence; visual execution was not independently inspected.\";\n    competitor.evidence_limitations =\n      \"CTA and detailed visual execution were not available for assessment.\";\n  }\n\n  if (competitor.competitor === \"Babbel\") {\n    competitor.creative_weaknesses =\n      \"Persuasive evidence and detailed visual execution were not fully available for assessment.\";\n    competitor.evidence_limitations =\n      \"The supplied evidence includes a CTA, but the full creative execution was not independently inspected.\";\n  }\n\n  if (competitor.competitor === \"Duolingo\") {\n    competitor.creative_strengths =\n      \"The supplied headline uses a clear brand-positioning claim.\";\n    competitor.creative_weaknesses =\n      \"Primary ad text was not verified, and the full video was not independently inspected.\";\n    competitor.evidence_limitations =\n      \"Primary text and detailed video content were not verified.\";\n  }\n\n  if (competitor.competitor === \"Hello English Online\") {\n    competitor.evidence_limitations =\n      \"No separate headline was supplied; detailed visual execution was not independently inspected.\";\n  }\n}\n\n// Replace the unsupported metrics recommendation.\nstrategy.opportunity_for_mysivi =\n  (strategy.opportunity_for_mysivi || []).map(item =>\n    item.includes(\"high usage metrics\")\n      ? \"Recommendation: Showcase verified learner outcomes or testimonials only when reliable evidence is available.\"\n      : item\n  );\n\n// Explicitly mark proposed features as unverified.\nstrategy.campaign_concept_disclaimer =\n  \"All three concepts are strategic hypotheses, not confirmed MySivi capabilities. Verify product features, pricing, availability and offers before publishing.\";\n\nstrategy.suggested_campaign_ideas =\n  strategy.suggested_campaign_ideas.map(idea => ({\n    ...idea,\n    verification_required: [\n      \"Verify that the proposed product features exist.\",\n      \"Confirm pricing, availability and any free-trial offer.\",\n      \"Approve all claims before using the concept in advertising.\"\n    ]\n  }));\n\nstrategy.evidence_limitations = [\n  ...(strategy.evidence_limitations || []),\n  \"Campaign concepts contain proposed features that require MySivi verification.\",\n  \"CQI measures assessed creative quality, not actual advertising performance.\"\n];\n\nconst rankingData = $(\"12 – Rank Ads & Identify Winner\").first().json;\n\nreturn [{\n  json: {\n    ...rankingData,\n    strategy,\n    strategyParsingStatus: \"Parsed and evidence corrections applied\"\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        -400
+      ],
+      "id": "9ab349b1-e6d8-4e10-abf3-ac431aaafe22",
+      "name": "14 – Parse Competitor Strategy"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "503d"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "=json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "=\n{{ JSON.stringify({\n  model: \"cohere/north-mini-code:free\",\n  temperature: 0,\n  max_tokens: 4000,\n  messages: [\n    {\n      role: \"system\",\n      content: \"Return exactly one valid JSON object. No explanations, no reasoning, no repeated content, no markdown, no text outside JSON. Do not invent MySivi features. Use Learn More as CTA. Put all unverified capabilities in features_to_verify.\"\n    },\n    {\n      role: \"user\",\n      content: \"Create exactly 3 concise MySivi advertising concepts using this research. Return this exact structure: {\\\"creative_concepts\\\":[{\\\"concept_name\\\":\\\"\\\",\\\"target_audience\\\":\\\"\\\",\\\"hook\\\":\\\"\\\",\\\"headline\\\":\\\"\\\",\\\"primary_text\\\":\\\"\\\",\\\"visual_direction\\\":\\\"\\\",\\\"CTA\\\":\\\"Learn More\\\",\\\"rationale\\\":\\\"\\\",\\\"features_to_verify\\\":[]}]}. Include exactly 3 objects in the array. Keep each field brief. Do not claim tutors, team plans, gamification, offline access, free trials, or other product features exist unless verified. Treat them as ideas requiring verification.\\n\\nResearch: \" + JSON.stringify({\n        winner: $json.winner,\n        comparison: $json.strategy.competitor_comparison,\n        opportunities: $json.strategy.opportunity_for_mysivi\n      })\n    }\n  ]\n}) }}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1712,
+        -400
+      ],
+      "id": "13956650-b041-4ea1-849c-aba4edcf7e00",
+      "name": "15– Generate MySivi Creative Concepts"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst response = $input.first().json;\n\nconst content = response.choices?.[0]?.message?.content;\n\nif (!content) {\n  throw new Error(\"No creative concepts received from AI.\");\n}\n\nconst cleaned = content\n  .replace(/```json/gi, \"\")\n  .replace(/```/g, \"\")\n  .trim();\n\nlet parsed;\n\ntry {\n  parsed = JSON.parse(cleaned);\n} catch (error) {\n  throw new Error(\"Invalid creative concepts JSON: \" + error.message);\n}\n\nif (\n  !Array.isArray(parsed.creative_concepts) ||\n  parsed.creative_concepts.length !== 3\n) {\n  throw new Error(\"Expected exactly 3 creative concepts.\");\n}\n\nconst previousData =\n  $(\"14 – Parse Competitor Strategy\").first().json;\n\nreturn [\n  {\n    json: {\n      ...previousData,\n      creativeConcepts: parsed.creative_concepts,\n      creativeConceptCount: parsed.creative_concepts.length,\n      creativeConceptParsingStatus: \"Successfully parsed\"\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        -400
+      ],
+      "id": "7d2fb07e-22f8-4dbd-b347-e95e12776eca",
+      "name": "16 – Parse Creative Concepts"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst conceptsData = $(\"16 – Parse Creative Concepts\").first().json;\nconst strategyData = $(\"14 – Parse Competitor Strategy\").first().json;\nconst rankingData = $(\"12 – Rank Ads & Identify Winner\").first().json;\nconst scoringItems = $(\"11 – Parse AI Scores & Calculate Final CQI\").all();\nconst dnaItems = $(\"09 – Explainable Creative Quality Index\").all();\n\nconst concepts = conceptsData.creativeConcepts || [];\nconst strategy = strategyData.strategy || {};\nconst rankedAds = rankingData.rankedAds || [];\n\nconst scoreCoverage = rankedAds.map(ad => ({\n  advertiser: ad.advertiser,\n  cqi: ad.creativeQualityIndex,\n  scoringCoverage: ad.evidenceCoverage ?? null\n}));\n\nconst report = {\n  reportTitle: \"AdMind – Competitor Advertising Intelligence Report\",\n  brand: \"MySivi\",\n  reportDate: new Date().toISOString().split(\"T\")[0],\n\n  executiveSummary: {\n    objective: \"Analyze four manually collected competitor advertisements, assess their creative quality, identify competitor messaging patterns, and recommend testable advertising concepts for MySivi.\",\n    competitorsAnalyzed: rankedAds.map(ad => ad.advertiser),\n    advertisementsAnalyzed: rankedAds.length,\n    highestScoringAds: rankingData.coWinners || [],\n    keyFinding: rankingData.winnerConclusion || \"See the competitor rankings and strategy analysis.\",\n    performanceDisclaimer: \"The highest CQI represents the highest-scoring creative in this sample, not the best-performing advertising campaign.\"\n  },\n\n  competitorRankings: rankedAds.map(ad => ({\n    rank: ad.rank,\n    advertiser: ad.advertiser,\n    adId: ad.adId,\n    headline: ad.headline,\n    adFormat: ad.adFormat,\n    creativeQualityScore: ad.creativeQualityScore,\n    creativeQualityIndex: ad.creativeQualityIndex,\n    scoringCoverage: ad.evidenceCoverage ?? null,\n    adLibraryUrl: ad.adLibraryUrl,\n    marketingObjective: ad.marketingObjective\n  })),\n\n  scoringMethodology: {\n    method: \"Weighted AI-assisted creative quality assessment.\",\n    criteria: [\n      { criterion: \"Hook strength\", weight: 25 },\n      { criterion: \"Message clarity\", weight: 20 },\n      { criterion: \"Persuasiveness\", weight: 20 },\n      { criterion: \"CTA effectiveness\", weight: 15 },\n      { criterion: \"Creative execution\", weight: 10 },\n      { criterion: \"Audience relevance\", weight: 10 }\n    ],\n    calculation: \"Available criterion ratings are weighted and normalized to a score out of 100. Unavailable criterion weights are excluded from the denominator.\",\n    coverageNote: \"Scoring coverage indicates the percentage of rubric weight with numeric ratings. It does not mean all advertisement information was independently verified.\"\n  },\n\n  competitorStrategy: strategy,\n\n  creativeAssessments: scoringItems.map(item => {\n    const ad = item.json;\n    return {\n      advertiser: ad.advertiser,\n      adId: ad.adId,\n      creativeQualityScore: ad.creativeQualityScore,\n      creativeQualityIndex: ad.creativeQualityIndex,\n      scoringCoverage: ad.evidenceCoverage ?? null,\n      ratings: ad.ratings || [],\n      overallAssessment: ad.overallAssessment || \"\",\n      limitations: ad.limitations || [],\n      improvements: ad.improvements || []\n    };\n  }),\n\n  creativeDNAAnalysis: dnaItems.map(item => ({\n    advertiser: item.json.ad?.advertiser || item.json.advertiser || \"Unknown\",\n    analysis: item.json.aiAnalysis || {}\n  })),\n\n  mySiviCreativeConcepts: concepts,\n\n  strategicRecommendations: {\n    recommendation: \"Select a campaign concept for a small validation test only after confirming the target audience, product capabilities, offer, and messaging.\",\n    conceptDisclaimer: \"The generated campaign concepts are proposals, not confirmation that MySivi currently offers the described features.\",\n    researchLimitations: strategy.researchLimitations || []\n  },\n\n  methodology: {\n    dataSource: \"Manual Meta Ad Library research using four supplied advertisement records. No automated Meta Ad Library API or Apify collection was used.\",\n    analysisMethod: \"AI-assisted creative DNA analysis, weighted creative quality scoring, competitor strategy interpretation, and campaign concept generation.\",\n    researchScope: \"Four manually collected advertisements from Duolingo, Cambly, Hello English Online, and Babbel.\",\n    dataLimitations: [\n      \"The analysis covers four supplied advertisements and is not a complete review of each competitor's advertising activity.\",\n      \"Duolingo primary ad text and CTA were not verified.\",\n      \"A separate headline was not supplied for Hello English Online.\",\n      \"Cambly's supplied headline is in Portuguese.\",\n      \"Ad images and videos were not independently inspected; creative descriptions are based on researcher observations.\",\n      \"The form's target country was India, but the target country of each individual advertisement was not independently verified.\",\n      \"No impressions, reach, advertising spend, click-through rates, installs, or conversion data were collected.\",\n      \"Scoring coverage measures available rubric ratings, not completeness or independent verification of source evidence.\",\n      \"MySivi product features, pricing, offers, and campaign capabilities have not been independently verified.\",\n      \"Generated MySivi concepts are recommendations and must not be interpreted as existing product features.\",\n      \"CQI is an analytical assessment of creative materials, not a measure of actual advertising performance.\"\n    ]\n  },\n\n  reportStatus: \"Generated – four-ad analysis; source and product claims require verification\"\n};\n\nreturn [{\n  json: {\n    project: \"AdMind\",\n    report,\n    processingStatus: \"Four-ad final research report generated\",\n    validation: {\n      adsIncluded: rankedAds.length,\n      conceptsIncluded: concepts.length,\n      strategyIncluded: Object.keys(strategy).length > 0\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        -416
+      ],
+      "id": "6e4e29cc-7ba4-4d8b-9219-cb241e381b79",
+      "name": "17 – Generate Final Research Report"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst report = input.report;\n\nif (!report) {\n  throw new Error(\"Final report data is missing. Check the connection from Node 17.\");\n}\n\nfunction esc(value) {\n  if (value === null || value === undefined || value === \"\") {\n    return \"Not available\";\n  }\n\n  if (typeof value === \"object\") {\n    return esc(JSON.stringify(value));\n  }\n\n  return String(value)\n    .replace(/&/g, \"&amp;\")\n    .replace(/</g, \"&lt;\")\n    .replace(/>/g, \"&gt;\")\n    .replace(/\"/g, \"&quot;\")\n    .replace(/'/g, \"&#39;\");\n}\n\nfunction list(items) {\n  if (!Array.isArray(items) || !items.length) {\n    return \"<p>Not available</p>\";\n  }\n\n  return \"<ul>\" + items.map(item =>\n    `<li>${esc(item)}</li>`\n  ).join(\"\") + \"</ul>\";\n}\n\nconst summary = report.executiveSummary || {};\nconst rankings = report.competitorRankings || [];\nconst methodology = report.methodology || {};\nconst scoring = report.scoringMethodology || {};\nconst strategy = report.competitorStrategy || {};\nconst concepts = report.mySiviCreativeConcepts || [];\nconst assessments = report.creativeAssessments || [];\nconst dnaItems = report.creativeDNAAnalysis || [];\n\nconst winnerNames = (summary.highestScoringAds || [])\n  .map(ad => ad.advertiser)\n  .filter(Boolean);\n\nconst rankingRows = rankings.map(ad => `\n  <tr>\n    <td>${esc(ad.rank)}</td>\n    <td>${esc(ad.advertiser)}</td>\n    <td>${esc(ad.creativeQualityIndex)}</td>\n    <td>${esc(ad.scoringCoverage)}%</td>\n    <td>${esc(ad.adFormat)}</td>\n    <td><a href=\"${esc(ad.adLibraryUrl)}\">View Ad</a></td>\n  </tr>\n`).join(\"\");\n\nconst strategyRows = (strategy.competitor_comparison || []).map(item => `\n  <tr>\n    <td>${esc(item.competitor)}</td>\n    <td>${esc(item.marketing_angle)}</td>\n    <td>${esc(item.target_audience)}</td>\n    <td>${esc(item.key_message)}</td>\n    <td>${esc(item.cqi)}</td>\n    <td>${esc(item.evidence_coverage)}%</td>\n  </tr>\n`).join(\"\");\n\nconst assessmentHTML = assessments.map(ad => `\n  <div class=\"concept\">\n    <h3>${esc(ad.advertiser)} – CQI ${esc(ad.creativeQualityIndex)}/100</h3>\n    <p><strong>Scoring coverage:</strong> ${esc(ad.scoringCoverage)}%</p>\n    <p><strong>Assessment:</strong> ${esc(ad.overallAssessment)}</p>\n\n    <table>\n      <thead>\n        <tr>\n          <th>Criterion</th>\n          <th>Weight</th>\n          <th>Rating</th>\n          <th>Explanation</th>\n        </tr>\n      </thead>\n      <tbody>\n        ${(ad.ratings || []).map(r => `\n          <tr>\n            <td>${esc(r.criterion)}</td>\n            <td>${esc(r.weight)}%</td>\n            <td>${r.score == null ? \"Not scored\" : esc(r.score) + \"/5\"}</td>\n            <td>${esc(r.explanation)}</td>\n          </tr>\n        `).join(\"\")}\n      </tbody>\n    </table>\n\n    <p><strong>Limitations:</strong></p>\n    ${Array.isArray(ad.limitations) ? list(ad.limitations) : `<p>${esc(ad.limitations)}</p>`}\n\n    <p><strong>Suggested improvements:</strong></p>\n    ${list(ad.improvements)}\n  </div>\n`).join(\"\");\n\nconst dnaHTML = dnaItems.map(item => {\n  const dna = item.analysis || {};\n\n  return `\n    <div class=\"concept\">\n      <h3>${esc(dna.brand || item.advertiser)}</h3>\n      <p><strong>Hook:</strong> ${esc(dna.hook)}</p>\n      <p><strong>Core message:</strong> ${esc(dna.core_message)}</p>\n      <p><strong>CTA:</strong> ${esc(dna.cta)}</p>\n      <p><strong>Audience pain point:</strong> ${esc(dna.audience_pain_point)}</p>\n      <p><strong>Emotional appeal:</strong> ${esc(dna.emotional_appeal)}</p>\n      <p><strong>Marketing angle:</strong> ${esc(dna.marketing_angle)}</p>\n      <p><strong>Funnel stage:</strong> ${esc(dna.funnel_stage)}</p>\n\n      <h4>Strengths</h4>\n      ${list(dna.strengths)}\n\n      <h4>Weaknesses</h4>\n      ${list(dna.weaknesses)}\n\n      <h4>Improvement suggestions</h4>\n      ${list(dna.improvement_suggestions)}\n    </div>\n  `;\n}).join(\"\");\n\nconst conceptHTML = concepts.map((c, index) => `\n  <div class=\"concept\">\n    <h3>${index + 1}. ${esc(c.concept_name)}</h3>\n\n    <p><strong>Target audience:</strong> ${esc(c.target_audience)}</p>\n    <p><strong>Hook:</strong> ${esc(c.hook)}</p>\n    <p><strong>Headline:</strong> ${esc(c.headline)}</p>\n    <p><strong>Primary text:</strong> ${esc(c.primary_text)}</p>\n    <p><strong>Visual direction:</strong> ${esc(c.visual_direction)}</p>\n    <p><strong>Proposed CTA:</strong> ${esc(c.CTA)}</p>\n    <p><strong>Rationale:</strong> ${esc(c.rationale)}</p>\n\n    <p><strong>Features to verify before publishing:</strong></p>\n    ${list(c.features_to_verify)}\n\n    <p class=\"note\">\n      This is a proposed advertising concept. It does not confirm that\n      MySivi currently provides these features or services.\n    </p>\n  </div>\n`).join(\"\");\n\nconst conceptIdeas = strategy.suggested_campaign_ideas || [];\n\nconst strategyIdeasHTML = conceptIdeas.map(item => `\n  <div class=\"concept\">\n    <h3>${esc(item.concept)}</h3>\n    <p><strong>Target audience:</strong> ${esc(item.target_audience)}</p>\n    <p><strong>Hook:</strong> ${esc(item.hook)}</p>\n    <p><strong>Key message:</strong> ${esc(item.key_message)}</p>\n    <p><strong>Suggested CTA:</strong> ${esc(item.suggested_cta)}</p>\n    <p><strong>Rationale:</strong> ${esc(item.rationale)}</p>\n    <p><strong>Verification required:</strong></p>\n    ${list(item.verification_required)}\n  </div>\n`).join(\"\");\n\nconst html = `<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>${esc(report.reportTitle)}</title>\n\n<style>\n* { box-sizing: border-box; }\n\nbody {\n  font-family: Arial, sans-serif;\n  color: #263247;\n  line-height: 1.6;\n  margin: 0;\n  background: #f4f6fa;\n}\n\n.container {\n  max-width: 1000px;\n  margin: 30px auto;\n  background: white;\n  padding: 42px;\n}\n\nh1 { color: #172554; font-size: 30px; }\n\nh2 {\n  color: #1e40af;\n  border-bottom: 2px solid #dbeafe;\n  padding-bottom: 8px;\n  margin-top: 38px;\n  page-break-after: avoid;\n}\n\nh3 { color: #1e3a8a; }\n\n.subtitle { color: #64748b; }\n\n.score {\n  background: #eff6ff;\n  padding: 20px;\n  margin: 20px 0;\n  border-radius: 8px;\n}\n\n.score strong {\n  font-size: 32px;\n  color: #1d4ed8;\n}\n\n.concept {\n  border: 1px solid #dbe3ef;\n  padding: 20px;\n  margin: 20px 0;\n  border-radius: 8px;\n  page-break-inside: avoid;\n}\n\n.note {\n  color: #92400e;\n  background: #fffbeb;\n  padding: 12px;\n  border-radius: 5px;\n}\n\n.scope {\n  background: #f1f5f9;\n  padding: 15px;\n  border-left: 4px solid #64748b;\n  margin: 18px 0;\n}\n\ntable {\n  width: 100%;\n  border-collapse: collapse;\n  margin: 15px 0;\n  font-size: 13px;\n}\n\nth, td {\n  border: 1px solid #dbe3ef;\n  padding: 9px;\n  text-align: left;\n  overflow-wrap: anywhere;\n}\n\nth { background: #eff6ff; }\n\na {\n  color: #1d4ed8;\n  overflow-wrap: anywhere;\n}\n\n.footer {\n  margin-top: 40px;\n  border-top: 1px solid #ddd;\n  padding-top: 15px;\n  color: #64748b;\n  font-size: 12px;\n}\n\n@media print {\n  body { background: white; }\n  .container { margin: 0; padding: 20px; }\n  .concept { break-inside: avoid; }\n  a { color: #1d4ed8; }\n}\n</style>\n</head>\n\n<body>\n<div class=\"container\">\n\n<h1>${esc(report.reportTitle)}</h1>\n<p class=\"subtitle\">Prepared for ${esc(report.brand)} | ${esc(report.reportDate)}</p>\n\n<h2>1. Executive Summary</h2>\n<p>${esc(summary.objective)}</p>\n<p><strong>Competitors analyzed:</strong> ${esc((summary.competitorsAnalyzed || []).join(\", \"))}</p>\n<p><strong>Advertisements analyzed:</strong> ${esc(summary.advertisementsAnalyzed)}</p>\n\n<div class=\"score\">\n  <p>Highest Creative Quality Index</p>\n  <strong>${winnerNames.length ? \"80 / 100\" : \"See ranking below\"}</strong>\n  <p><strong>Joint highest-scoring creatives:</strong> ${esc(winnerNames.join(\" and \"))}</p>\n  <p>This is a creative assessment, not an advertising performance score.</p>\n</div>\n\n<p><strong>Key finding:</strong> ${esc(summary.keyFinding)}</p>\n<p><strong>Performance disclaimer:</strong> ${esc(summary.performanceDisclaimer)}</p>\n\n<div class=\"scope\">\n  <strong>Research scope:</strong> ${esc(methodology.researchScope)}\n</div>\n\n<h2>2. Competitor Creative Quality Rankings</h2>\n\n<table>\n<thead>\n<tr>\n  <th>Rank</th>\n  <th>Competitor</th>\n  <th>CQI</th>\n  <th>Scoring coverage</th>\n  <th>Format</th>\n  <th>Ad</th>\n</tr>\n</thead>\n<tbody>${rankingRows}</tbody>\n</table>\n\n<p class=\"note\">\nScoring coverage represents the percentage of rubric weight with numeric\nratings. It does not mean all source information was independently verified.\n</p>\n\n<h2>3. Scoring Methodology</h2>\n<p>${esc(scoring.method)}</p>\n<table>\n<thead><tr><th>Criterion</th><th>Weight</th></tr></thead>\n<tbody>\n${(scoring.criteria || []).map(c => `\n<tr><td>${esc(c.criterion)}</td><td>${esc(c.weight)}%</td></tr>\n`).join(\"\")}\n</tbody>\n</table>\n<p><strong>Calculation:</strong> ${esc(scoring.calculation)}</p>\n<p><strong>Coverage note:</strong> ${esc(scoring.coverageNote)}</p>\n\n<h2>4. Competitor Creative DNA Analysis</h2>\n${dnaHTML || \"<p>Not available</p>\"}\n\n<h2>5. Detailed Creative Quality Assessments</h2>\n${assessmentHTML || \"<p>Not available</p>\"}\n\n<h2>6. Competitor Strategy Analysis</h2>\n\n<h3>Competitor Comparison</h3>\n<table>\n<thead>\n<tr>\n  <th>Competitor</th>\n  <th>Marketing angle</th>\n  <th>Target audience</th>\n  <th>Key message</th>\n  <th>CQI</th>\n  <th>Coverage</th>\n</tr>\n</thead>\n<tbody>${strategyRows}</tbody>\n</table>\n\n<h3>Overall Market Patterns</h3>\n${list(strategy.overall_market_patterns)}\n\n<h3>Competitor Strategy Insights</h3>\n${list(strategy.competitor_strategy_insights)}\n\n<h3>Opportunities for MySivi</h3>\n${list(strategy.opportunity_for_mysivi)}\n\n<h3>Additional Strategy Campaign Ideas</h3>\n${strategyIdeasHTML || \"<p>Not available</p>\"}\n\n<h2>7. MySivi Proposed Creative Concepts</h2>\n<p class=\"note\">\nAll concepts are proposals. Verify product features, services, pricing,\navailability and offers with MySivi before publishing.\n</p>\n${conceptHTML || \"<p>Not available</p>\"}\n\n<h2>8. Strategic Recommendation</h2>\n<p>${esc(report.strategicRecommendations?.recommendation)}</p>\n<p><strong>Concept disclaimer:</strong> ${esc(report.strategicRecommendations?.conceptDisclaimer)}</p>\n\n<h2>9. Research Limitations</h2>\n${list(methodology.dataLimitations)}\n\n<h3>Competitor Strategy Evidence Limitations</h3>\n${list(strategy.evidence_limitations)}\n\n<h2>10. Methodology</h2>\n<p><strong>Data source:</strong> ${esc(methodology.dataSource)}</p>\n<p><strong>Analysis method:</strong> ${esc(methodology.analysisMethod)}</p>\n<p><strong>Research scope:</strong> ${esc(methodology.researchScope)}</p>\n\n<div class=\"footer\">\n${esc(report.reportTitle)} | ${esc(report.reportStatus)}\n</div>\n\n</div>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    project: \"AdMind\",\n    fileName: \"AdMind_Competitor_Research_Report.html\",\n    html,\n    processingStatus: \"Four-ad HTML report generated successfully\",\n    validation: {\n      competitorRankings: rankings.length,\n      creativeAssessments: assessments.length,\n      creativeDNAAnalyses: dnaItems.length,\n      mySiviConcepts: concepts.length,\n      htmlGenerated: true\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        -416
+      ],
+      "id": "996b1ff4-333b-49c9-8840-e6dc473140f3",
+      "name": "18– Generate HTML Report"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "01 – Validate & Prepare Research Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "01 – Validate & Prepare Research Inputs": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "02 – Build Competitor Search Jobs": {
+      "main": [
+        [
+          {
+            "node": "03 – Launch Apify Ad Collection",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "03 – Launch Apify Ad Collection": {
+      "main": [
+        [
+          {
+            "node": "04 – Wait for Apify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "04 – Wait for Apify": {
+      "main": [
+        [
+          {
+            "node": "05 – Check Apify Run Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "05 – Check Apify Run Status": {
+      "main": [
+        [
+          {
+            "node": "06 – Retrieve Ads from Dataset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "06 – Retrieve Ads from Dataset": {
+      "main": [
+        []
+      ]
+    },
+    "07 – Normalize & Filter Ad Creatives": {
+      "main": [
+        [
+          {
+            "node": "08 – AI Creative DNA Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "08 – AI Creative DNA Analysis": {
+      "main": [
+        [
+          {
+            "node": "09 – Explainable Creative Quality Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "09 – Explainable Creative Quality Index": {
+      "main": [
+        [
+          {
+            "node": "10 – AI Creative Quality Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10 – AI Creative Quality Scoring": {
+      "main": [
+        [
+          {
+            "node": "11 – Parse AI Scores & Calculate Final CQI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11 – Parse AI Scores & Calculate Final CQI": {
+      "main": [
+        [
+          {
+            "node": "12 – Rank Ads & Identify Winner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "07 – Normalize & Filter Ad Creatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "12 – Rank Ads & Identify Winner": {
+      "main": [
+        [
+          {
+            "node": "13– Competitor Strategy & Opportunity Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "13– Competitor Strategy & Opportunity Analysis": {
+      "main": [
+        [
+          {
+            "node": "14 – Parse Competitor Strategy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "14 – Parse Competitor Strategy": {
+      "main": [
+        [
+          {
+            "node": "15– Generate MySivi Creative Concepts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "15– Generate MySivi Creative Concepts": {
+      "main": [
+        [
+          {
+            "node": "16 – Parse Creative Concepts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "16 – Parse Creative Concepts": {
+      "main": [
+        [
+          {
+            "node": "17 – Generate Final Research Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "17 – Generate Final Research Report": {
+      "main": [
+        [
+          {
+            "node": "18– Generate HTML Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "18– Generate HTML Report": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a1afd4fa-2aed-48a8-9db2-112f376c776a",
+  "meta": {
+    "instanceId": "a1f9b1e282e515ab68e9211d990791ad5b023342d815d06bb6c33a6692960460"
+  },
+  "nodeGroups": [],
+  "id": "gIIQjcNUQ26eFQbh",
+  "tags": []
+}
